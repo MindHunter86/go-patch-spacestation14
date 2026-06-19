@@ -1,0 +1,164 @@
+name: build
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-amd64:
+    name: Linux amd64
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Fyne build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc \
+            pkg-config \
+            libgl1-mesa-dev \
+            xorg-dev
+
+      - name: Build
+        env:
+          CGO_ENABLED: '1'
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          mkdir -p dist/ss14-url-patcher-linux-amd64
+          go mod download
+          go build -trimpath -ldflags='-s -w' \
+            -o dist/ss14-url-patcher-linux-amd64/ss14-url-patcher .
+          chmod +x dist/ss14-url-patcher-linux-amd64/ss14-url-patcher
+          tar -C dist -czf dist/ss14-url-patcher-linux-amd64.tar.gz ss14-url-patcher-linux-amd64
+          sha256sum dist/ss14-url-patcher-linux-amd64.tar.gz > dist/ss14-url-patcher-linux-amd64.tar.gz.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ss14-url-patcher-linux-amd64
+          path: |
+            dist/ss14-url-patcher-linux-amd64.tar.gz
+            dist/ss14-url-patcher-linux-amd64.tar.gz.sha256
+
+  windows-amd64:
+    name: Windows amd64
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup MSYS2 MinGW toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkg-config
+
+      - name: Build
+        shell: msys2 {0}
+        env:
+          CGO_ENABLED: '1'
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          mkdir -p dist/ss14-url-patcher-windows-amd64
+          go mod download
+          go build -trimpath -ldflags='-s -w -H windowsgui' \
+            -o dist/ss14-url-patcher-windows-amd64/ss14-url-patcher.exe .
+          cd dist
+          powershell.exe -NoProfile -Command "Compress-Archive -Force -Path 'ss14-url-patcher-windows-amd64' -DestinationPath 'ss14-url-patcher-windows-amd64.zip'"
+          powershell.exe -NoProfile -Command "Get-FileHash 'ss14-url-patcher-windows-amd64.zip' -Algorithm SHA256 | ForEach-Object { \$_.Hash.ToLower() + '  ss14-url-patcher-windows-amd64.zip' } | Set-Content 'ss14-url-patcher-windows-amd64.zip.sha256'"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ss14-url-patcher-windows-amd64
+          path: |
+            dist/ss14-url-patcher-windows-amd64.zip
+            dist/ss14-url-patcher-windows-amd64.zip.sha256
+
+  macos-amd64:
+    name: macOS amd64 Intel
+    runs-on: macos-15-intel
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build and package .app
+        env:
+          CGO_ENABLED: '1'
+          GOOS: darwin
+          GOARCH: amd64
+        run: |
+          go mod download
+          ./scripts/package-macos.sh amd64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ss14-url-patcher-darwin-amd64
+          path: |
+            dist/ss14-url-patcher-darwin-amd64.zip
+            dist/ss14-url-patcher-darwin-amd64.zip.sha256
+
+  macos-arm64:
+    name: macOS arm64 Apple Silicon
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build and package .app
+        env:
+          CGO_ENABLED: '1'
+          GOOS: darwin
+          GOARCH: arm64
+        run: |
+          go mod download
+          ./scripts/package-macos.sh arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ss14-url-patcher-darwin-arm64
+          path: |
+            dist/ss14-url-patcher-darwin-arm64.zip
+            dist/ss14-url-patcher-darwin-arm64.zip.sha256
