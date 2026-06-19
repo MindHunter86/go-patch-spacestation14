@@ -80,14 +80,58 @@ var urlPairs = []urlPair{
 		Old: "https://robust-builds.fallback.cdn.spacestation14.com/",
 		New: "https://robust-fb.ss14.ss220.club/builds-cdn-fb-v001x/",
 	},
-	// {
-	// 	Old: "https://launcher-data.cdn.spacestation14.com/",
-	// 	New: "https://launcher.ss14.ss220.club/data-cdn-v1/",
-	// },
-	// {
-	// 	Old: "https://launcher-data.fallback.cdn.spacestation14.com/",
-	// 	New: "https://launcher-fb.ss14.ss220.club/data-cdn-fb-v001x/",
-	// },
+	{
+		Old: "https://launcher-data.cdn.spacestation14.com/",
+		New: "https://launcher.ss14.ss220.club/data-cdn-v1/",
+	},
+	{
+		Old: "https://launcher-data.fallback.cdn.spacestation14.com/",
+		New: "https://launcher-fb.ss14.ss220.club/data-cdn-fb-v001x/",
+	},
+
+	// Full URL variants.
+	{
+		Old: "https://hub.spacestation14.com/",
+		New: "https://hub-v1.ss14.ss220.club/",
+	},
+	{
+		Old: "https://auth.spacestation14.com/",
+		New: "https://auth-v1.ss14.ss220.club/",
+	},
+	{
+		Old: "https://auth.fallback.spacestation14.com/",
+		New: "https://auth-fallback-v1.ss14.ss220.club/",
+	},
+	{
+		Old: "https://hub.fallback.spacestation14.com/",
+		New: "https://hub-fallback-v1.ss14.ss220.club/",
+	},
+	{
+		Old: "https://account.spacestation14.com/",
+		New: "https://account-v1.ss14.ss220.club/",
+	},
+
+	// Host-only variants.
+	{
+		Old: "hub.spacestation14.com",
+		New: "hub-v1.ss14.ss220.club",
+	},
+	{
+		Old: "auth.spacestation14.com",
+		New: "auth-v1.ss14.ss220.club",
+	},
+	{
+		Old: "auth.fallback.spacestation14.com",
+		New: "auth-fallback-v1.ss14.ss220.club",
+	},
+	{
+		Old: "hub.fallback.spacestation14.com",
+		New: "hub-fallback-v1.ss14.ss220.club",
+	},
+	{
+		Old: "account.spacestation14.com",
+		New: "account-v1.ss14.ss220.club",
+	},
 }
 
 func main() {
