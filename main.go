@@ -80,14 +80,14 @@ var urlPairs = []urlPair{
 		Old: "https://robust-builds.fallback.cdn.spacestation14.com/",
 		New: "https://robust-fb.ss14.ss220.club/builds-cdn-fb-v001x/",
 	},
-	{
-		Old: "https://launcher-data.cdn.spacestation14.com/",
-		New: "https://launcher.ss14.ss220.club/data-cdn-v1/",
-	},
-	{
-		Old: "https://launcher-data.fallback.cdn.spacestation14.com/",
-		New: "https://launcher-fb.ss14.ss220.club/data-cdn-fb-v001x/",
-	},
+	// {
+	// 	Old: "https://launcher-data.cdn.spacestation14.com/",
+	// 	New: "https://launcher.ss14.ss220.club/data-cdn-v1/",
+	// },
+	// {
+	// 	Old: "https://launcher-data.fallback.cdn.spacestation14.com/",
+	// 	New: "https://launcher-fb.ss14.ss220.club/data-cdn-fb-v001x/",
+	// },
 }
 
 func main() {
