@@ -108,8 +108,8 @@ func main() {
 	logView.set([]logEntry{
 		{Level: levelTitle, Text: "SS14 CDN URL patcher"},
 		{Level: levelInfo, Text: "Выберите папку игры Space Station 14 или распакованную папку лаунчера."},
-		{Level: levelInfo, Text: "Кнопка выбора сначала пробует системный Explorer/Finder/zenity/kdialog/yad, затем Fyne fallback."},
-		{Level: levelWarn, Text: "Backup не перезаписывается. Откат удаляет backup после успешного восстановления."},
+		// {Level: levelInfo, Text: "Кнопка выбора сначала пробует системный Explorer/Finder/zenity/kdialog/yad, затем Fyne fallback."},
+		// {Level: levelWarn, Text: "Backup не перезаписывается. Откат удаляет backup после успешного восстановления."},
 	})
 
 	chooseButton := widget.NewButton("Выбрать папку", func() {
