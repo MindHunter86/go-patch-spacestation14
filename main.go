@@ -134,6 +134,59 @@ var urlPairs = []urlPair{
 		Old: "account.spacestation14.com",
 		New: "account-v1.ss14.ss220.club",
 	},
+
+	// playss14 full URL variants.
+	{
+		Old: "https://account.playss14.com/",
+		New: "https://account.p.ss220.club/",
+	},
+	{
+		Old: "https://auth.playss14.com/",
+		New: "https://auth.p.ss220.club/",
+	},
+	{
+		Old: "https://hub.playss14.com/",
+		New: "https://hub.p.ss220.club/",
+	},
+	{
+		Old: "https://robust-builds.playss14.com/",
+		New: "https://robust-builds.p.ss220.club/",
+	},
+	{
+		Old: "https://launcher-data.playss14.com/",
+		New: "https://launcher-data.p.ss220.club/",
+	},
+
+	{
+		Old: "https://launcher-data.cdn.playss14.com/",
+		New: "https://launcher-data-cdn.p.ss220.club/",
+	},
+
+	// playss14 host-only variants.
+	{
+		Old: "account.playss14.com",
+		New: "account.p.ss220.club",
+	},
+	{
+		Old: "auth.playss14.com",
+		New: "auth.p.ss220.club",
+	},
+	{
+		Old: "hub.playss14.com",
+		New: "hub.p.ss220.club",
+	},
+	{
+		Old: "robust-builds.playss14.com",
+		New: "robust-builds.p.ss220.club",
+	},
+	{
+		Old: "launcher-data.playss14.com",
+		New: "launcher-data.p.ss220.club",
+	},
+	{
+		Old: "launcher-data.cdn.playss14.com",
+		New: "launcher-data-cdn.p.ss220.club",
+	},
 }
 
 func main() {
