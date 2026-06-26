@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image/color"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"unicode/utf16"
 
@@ -152,14 +154,26 @@ func main() {
 	logView.set([]logEntry{
 		{Level: levelTitle, Text: "SS14 CDN URL patcher"},
 		{Level: levelInfo, Text: "Выберите папку игры Space Station 14 или распакованную папку лаунчера."},
-		// {Level: levelInfo, Text: "Кнопка выбора сначала пробует системный Explorer/Finder/zenity/kdialog/yad, затем Fyne fallback."},
-		// {Level: levelWarn, Text: "Backup не перезаписывается. Откат удаляет backup после успешного восстановления."},
+		{Level: levelInfo, Text: "Кнопка выбора сначала пробует системный Explorer/Finder/zenity/kdialog/yad, затем Fyne fallback."},
+		{Level: levelInfo, Text: "Автопоиск ищет процесс SS14.Launcher, подставляет путь и завершает найденный лаунчер."},
+		{Level: levelWarn, Text: "Backup не перезаписывается. Откат удаляет backup после успешного восстановления."},
 	})
 
 	chooseButton := widget.NewButton("Выбрать папку", func() {
 		chooseLauncherDirNativeFirst(w, pathEntry.Text, func(path string) {
 			pathEntry.SetText(path)
 		})
+	})
+
+	autoFindButton := widget.NewButton("Автоматически найти приложение", func() {
+		entries, foundPath, err := autoFindLauncherAndKill()
+		logView.set(entries)
+		if foundPath != "" {
+			pathEntry.SetText(foundPath)
+		}
+		if err != nil {
+			dialog.ShowError(err, w)
+		}
 	})
 
 	checkButton := widget.NewButton("Проверить", func() {
@@ -190,7 +204,7 @@ func main() {
 	})
 
 	pathRow := container.NewBorder(nil, nil, nil, chooseButton, pathEntry)
-	buttons := container.NewHBox(checkButton, patchButton, rollbackButton)
+	buttons := container.NewHBox(autoFindButton, checkButton, patchButton, rollbackButton)
 	content := container.NewBorder(
 		container.NewVBox(
 			widget.NewLabel("Папка игры Space Station 14:"),
@@ -877,6 +891,430 @@ func rollbackFile(path string) (rollbackResult, error) {
 	}
 
 	return rollbackResult{Entry: logEntry{Level: levelOK, Text: "RESTORED AND BACKUP REMOVED: " + rel}, Restored: true, BackupSeen: true}, nil
+}
+
+type launcherProcess struct {
+	PID     int
+	Exe     string
+	Cmdline string
+}
+
+type windowsProcessInfo struct {
+	ProcessID      int    `json:"ProcessId"`
+	ExecutablePath string `json:"ExecutablePath"`
+	CommandLine    string `json:"CommandLine"`
+}
+
+func autoFindLauncherAndKill() ([]logEntry, string, error) {
+	entries := []logEntry{
+		{Level: levelTitle, Text: "Автопоиск SS14.Launcher"},
+		{Level: levelInfo, Text: "Ищу запущенный процесс SS14.Launcher."},
+	}
+
+	procs, err := findLauncherProcesses()
+	if err != nil {
+		entries = append(entries, logEntry{Level: levelError, Text: "Ошибка поиска процесса: " + err.Error()})
+		return entries, "", err
+	}
+
+	if len(procs) == 0 {
+		err := errors.New("процесс SS14.Launcher не найден")
+		entries = append(entries,
+			logEntry{Level: levelError, Text: "Процесс SS14.Launcher не найден."},
+			logEntry{Level: levelInfo, Text: "Запустите лаунчер, затем нажмите эту кнопку ещё раз."},
+		)
+		return entries, "", err
+	}
+
+	entries = append(entries, logEntry{Level: levelOK, Text: fmt.Sprintf("Найдено процессов: %d", len(procs))})
+
+	foundPath := ""
+	for _, proc := range procs {
+		entries = append(entries, logEntry{Level: levelInfo, Text: fmt.Sprintf("PID %d: %s", proc.PID, shortProcessInfo(proc))})
+		if foundPath == "" {
+			if path := inferLauncherRootFromProcess(proc); path != "" {
+				foundPath = path
+			}
+		}
+	}
+
+	if foundPath == "" {
+		err := errors.New("процесс найден, но путь к приложению определить не удалось")
+		entries = append(entries, logEntry{Level: levelError, Text: err.Error()})
+		return entries, "", err
+	}
+
+	entries = append(entries, logEntry{Level: levelOK, Text: "Путь найден: " + foundPath})
+
+	killed := 0
+	failed := 0
+	var firstKillErr error
+
+	for _, proc := range procs {
+		if proc.PID == os.Getpid() {
+			entries = append(entries, logEntry{Level: levelSkip, Text: fmt.Sprintf("PID %d: пропущен собственный процесс", proc.PID)})
+			continue
+		}
+
+		if err := killProcess(proc.PID); err != nil {
+			failed++
+			if firstKillErr == nil {
+				firstKillErr = err
+			}
+			entries = append(entries, logEntry{Level: levelWarn, Text: fmt.Sprintf("PID %d: не удалось завершить: %v", proc.PID, err)})
+			continue
+		}
+
+		killed++
+		entries = append(entries, logEntry{Level: levelOK, Text: fmt.Sprintf("PID %d: процесс завершён", proc.PID)})
+	}
+
+	entries = append(entries, logEntry{Level: levelSummary, Text: fmt.Sprintf("Итог: path_set=yes, killed=%d, failed=%d", killed, failed)})
+
+	if failed > 0 && killed == 0 {
+		return entries, foundPath, firstKillErr
+	}
+
+	return entries, foundPath, nil
+}
+
+func findLauncherProcesses() ([]launcherProcess, error) {
+	switch runtime.GOOS {
+	case "windows":
+		return findLauncherProcessesWindows()
+	case "darwin":
+		return findLauncherProcessesDarwin()
+	default:
+		return findLauncherProcessesLinux()
+	}
+}
+
+func findLauncherProcessesLinux() ([]launcherProcess, error) {
+	items, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+
+	procs := make([]launcherProcess, 0)
+
+	for _, item := range items {
+		if !item.IsDir() {
+			continue
+		}
+
+		pid, err := strconv.Atoi(item.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+
+		base := filepath.Join("/proc", item.Name())
+		comm := readTextFile(filepath.Join(base, "comm"))
+		cmdline := readProcCmdline(filepath.Join(base, "cmdline"))
+		exe, _ := os.Readlink(filepath.Join(base, "exe"))
+
+		if looksLikeLauncherProcess(comm, exe, cmdline) {
+			procs = append(procs, launcherProcess{PID: pid, Exe: exe, Cmdline: cmdline})
+		}
+	}
+
+	return procs, nil
+}
+
+func findLauncherProcessesDarwin() ([]launcherProcess, error) {
+	out, err := exec.Command("ps", "axww", "-o", "pid=", "-o", "command=").Output()
+	if err != nil {
+		return nil, err
+	}
+
+	procs := make([]launcherProcess, 0)
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil || pid <= 0 {
+			continue
+		}
+
+		cmdline := strings.TrimSpace(strings.TrimPrefix(line, fields[0]))
+		if looksLikeLauncherProcess("", "", cmdline) {
+			procs = append(procs, launcherProcess{PID: pid, Cmdline: cmdline})
+		}
+	}
+
+	return procs, nil
+}
+
+func findLauncherProcessesWindows() ([]launcherProcess, error) {
+	script := `
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$currentPid = $PID
+$items = @(Get-CimInstance Win32_Process | Where-Object {
+    ($_.ProcessId -ne $currentPid) -and
+    ($_.Name -notlike '*powershell*') -and
+    ($_.Name -notlike '*pwsh*') -and
+    (
+        ($_.Name -like '*SS14.Launcher*') -or
+        ($_.ExecutablePath -like '*SS14.Launcher*') -or
+        ($_.CommandLine -like '*SS14.Launcher*')
+    )
+} | Select-Object ProcessId, ExecutablePath, CommandLine)
+ConvertTo-Json -Compress -Depth 2 -InputObject $items
+`
+	out, err := exec.Command("powershell.exe", "-NoProfile", "-Command", script).Output()
+	if err != nil {
+		return nil, err
+	}
+
+	text := strings.TrimSpace(string(out))
+	if text == "" || text == "null" {
+		return nil, nil
+	}
+
+	var items []windowsProcessInfo
+	if err := json.Unmarshal([]byte(text), &items); err != nil {
+		var single windowsProcessInfo
+		if err2 := json.Unmarshal([]byte(text), &single); err2 != nil {
+			return nil, err
+		}
+		if single.ProcessID > 0 {
+			items = append(items, single)
+		}
+	}
+
+	procs := make([]launcherProcess, 0, len(items))
+	for _, item := range items {
+		if item.ProcessID <= 0 {
+			continue
+		}
+		procs = append(procs, launcherProcess{
+			PID:     item.ProcessID,
+			Exe:     item.ExecutablePath,
+			Cmdline: item.CommandLine,
+		})
+	}
+
+	return procs, nil
+}
+
+func looksLikeLauncherProcess(parts ...string) bool {
+	for _, part := range parts {
+		part = strings.ToLower(part)
+		if strings.Contains(part, "ss14.launcher") {
+			return true
+		}
+	}
+	return false
+}
+
+func inferLauncherRootFromProcess(proc launcherProcess) string {
+	seen := map[string]struct{}{}
+	candidates := make([]string, 0, 16)
+
+	add := func(path string) {
+		path = strings.TrimSpace(strings.Trim(path, "\"'"))
+		if path == "" {
+			return
+		}
+		if _, ok := seen[path]; ok {
+			return
+		}
+		seen[path] = struct{}{}
+		candidates = append(candidates, path)
+	}
+
+	add(proc.Exe)
+	for _, token := range commandLineTokens(proc.Cmdline) {
+		if looksLikeLauncherProcess(token) {
+			add(token)
+		}
+	}
+
+	for _, candidate := range candidates {
+		for _, root := range launcherRootsFromPath(candidate) {
+			if root == "" {
+				continue
+			}
+			root = filepath.Clean(root)
+			if dirExists(root) {
+				return root
+			}
+		}
+	}
+
+	return ""
+}
+
+func commandLineTokens(cmdline string) []string {
+	cmdline = strings.TrimSpace(cmdline)
+	if cmdline == "" {
+		return nil
+	}
+
+	tokens := make([]string, 0, 8)
+	var b strings.Builder
+	inQuote := false
+	var quote rune
+
+	for _, r := range cmdline {
+		switch {
+		case inQuote:
+			if r == quote {
+				inQuote = false
+				continue
+			}
+			b.WriteRune(r)
+		case r == '\'' || r == '"':
+			inQuote = true
+			quote = r
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			if b.Len() > 0 {
+				tokens = append(tokens, b.String())
+				b.Reset()
+			}
+		default:
+			b.WriteRune(r)
+		}
+	}
+
+	if b.Len() > 0 {
+		tokens = append(tokens, b.String())
+	}
+
+	return tokens
+}
+
+func launcherRootsFromPath(path string) []string {
+	path = strings.TrimSpace(strings.Trim(path, "\"'"))
+	if path == "" {
+		return nil
+	}
+
+	path = filepath.Clean(path)
+	roots := make([]string, 0, 4)
+
+	if appRoot := appBundleRoot(path); appRoot != "" {
+		roots = append(roots, appRoot)
+	}
+
+	base := strings.ToLower(filepath.Base(path))
+	dir := filepath.Dir(path)
+
+	switch base {
+	case "ss14.launcher.dll":
+		roots = append(roots, launcherRootFromDLL(path))
+	case "ss14.launcher", "ss14.launcher.exe":
+		roots = append(roots, dir)
+	default:
+		if looksLikeLauncherProcess(path) {
+			if st, err := os.Stat(path); err == nil && st.IsDir() {
+				roots = append(roots, path)
+			} else {
+				roots = append(roots, dir)
+			}
+		}
+	}
+
+	return dedupeStrings(roots)
+}
+
+func launcherRootFromDLL(path string) string {
+	dir := filepath.Dir(path)
+	base := strings.ToLower(filepath.Base(dir))
+
+	switch base {
+	case "bin_x64", "bin_arm64", "bin":
+		return filepath.Dir(dir)
+	case "macos":
+		if appRoot := appBundleRoot(path); appRoot != "" {
+			return appRoot
+		}
+	}
+
+	return dir
+}
+
+func appBundleRoot(path string) string {
+	lower := strings.ToLower(path)
+	idx := strings.Index(lower, ".app")
+	if idx == -1 {
+		return ""
+	}
+	return filepath.Clean(path[:idx+len(".app")])
+}
+
+func dedupeStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func shortProcessInfo(proc launcherProcess) string {
+	if proc.Exe != "" {
+		return proc.Exe
+	}
+	if proc.Cmdline != "" {
+		cmd := proc.Cmdline
+		if len(cmd) > 180 {
+			cmd = cmd[:180] + "..."
+		}
+		return cmd
+	}
+	return "<no path>"
+}
+
+func readTextFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func readProcCmdline(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	data = bytes.Trim(data, "\x00")
+	return strings.TrimSpace(string(bytes.ReplaceAll(data, []byte{0}, []byte{' '})))
+}
+
+func killProcess(pid int) error {
+	if pid <= 0 {
+		return errors.New("invalid pid")
+	}
+	if pid == os.Getpid() {
+		return errors.New("refuse to kill own process")
+	}
+
+	if runtime.GOOS == "windows" {
+		return exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F").Run()
+	}
+
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+
+	return proc.Kill()
 }
 
 func filePerm(path string) os.FileMode {
